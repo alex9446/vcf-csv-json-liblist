@@ -1,6 +1,7 @@
 import csv
 import json
 import re
+import quopri
 from sys import argv
 from typing import Dict, List
 
@@ -8,7 +9,7 @@ Contact = Dict[str, str]
 ContactList = List[Contact]
 
 
-CONVERSION = '''
+OPTIONS_DESC = '''
 conversion:
 --vcf2csv\t\t From VCard to CSV
 --vcf2json\t\t From VCard to JSON
@@ -16,22 +17,69 @@ conversion:
 --csv2json\t\t From CSV to JSON
 --json2vcf\t\t From JSON to VCard
 --json2csv\t\t From JSON to CSV
+
+--decode\t\t Decode quoted printable strings
+--reducer\t\t Reduce phone attributes if they have the same value
+
+
+WARNING: The conversion does not keep the value of duplicate attributes
 '''
-USAGE = ('usage: python3 {} <conversion> <filename>\n{}'
-         .format(argv[0], CONVERSION))
-VERSION = '0.1'
+USAGE = ('usage: python3 {} <conversion> [--decode] [--reducer] <filename>\n{}'
+         .format(argv[0], OPTIONS_DESC))
+VERSION = '0.2.0'
+
+QUOTED_PRINTABLE_ATTR = ';CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE'
+PHONE_ATTR = [  # First value is the default
+    'TEL;CELL;PREF',
+    'TEL;CELL',
+    'TEL;WORK'
+]
 
 
 def headers_of_contacts(list_of_contacts: ContactList) -> List[str]:
     headers = []
 
     for dict_of_contact in list_of_contacts:
-        contact_keys = dict_of_contact.keys()
-        for key in contact_keys:
+        for key in dict_of_contact.keys():
             if key not in headers:
                 headers.append(key)
 
     return headers
+
+
+def decode_quoted_printable(list_of_contacts: ContactList) -> ContactList:
+    new_list_of_contacts = []
+
+    for dict_of_contact in list_of_contacts:
+        new_dict_of_contact = {}
+        for key, value in dict_of_contact.items():
+            if key.endswith(QUOTED_PRINTABLE_ATTR):
+                new_key = key.replace(QUOTED_PRINTABLE_ATTR, '')
+                new_value = quopri.decodestring(value).decode('utf-8')
+                new_dict_of_contact[new_key] = new_value
+            else:
+                new_dict_of_contact[key] = value
+        new_list_of_contacts.append(new_dict_of_contact)
+
+    return new_list_of_contacts
+
+
+def reduce_phone_attr(list_of_contacts: ContactList) -> ContactList:
+    default_phone_attr = PHONE_ATTR[0]
+    new_list_of_contacts = []
+
+    for dict_of_contact in list_of_contacts:
+        new_dict_of_contact = {}
+        for key, value in dict_of_contact.items():
+            if (key in PHONE_ATTR[1:]
+                and (default_phone_attr not in dict_of_contact
+                     or dict_of_contact[default_phone_attr] == value)):
+                new_dict_of_contact[default_phone_attr] = value
+            else:
+                new_dict_of_contact[key] = value
+        new_list_of_contacts.append(new_dict_of_contact)
+
+    return new_list_of_contacts
 
 
 def vcf2list(filename: str, replace_same_key: bool = False) -> ContactList:
@@ -115,21 +163,53 @@ def list2vcf(filename: str, list_of_contacts: ContactList) -> None:
 
 if __name__ == '__main__':
     filename = argv[-1]
+    decode = True if '--decode' in argv else False
+    reducer = True if '--reducer' in argv else False
     if '--help' in argv or '-h' in argv or len(argv) < 3:
         print(USAGE)
     elif '--version' in argv or '-v' in argv:
         print(VERSION)
     elif '--vcf2csv' in argv:
-        list2csv(filename, vcf2list(filename))
+        list_of_contacts = vcf2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2csv(filename, list_of_contacts)
     elif '--vcf2json' in argv:
-        list2json(filename, vcf2list(filename))
+        list_of_contacts = vcf2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2json(filename, list_of_contacts)
     elif '--csv2vcf' in argv:
-        list2vcf(filename, csv2list(filename))
+        list_of_contacts = csv2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2vcf(filename, list_of_contacts)
     elif '--csv2json' in argv:
-        list2json(filename, csv2list(filename))
+        list_of_contacts = csv2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2json(filename, list_of_contacts)
     elif '--json2vcf' in argv:
-        list2vcf(filename, json2list(filename))
+        list_of_contacts = json2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2vcf(filename, list_of_contacts)
     elif '--json2csv' in argv:
-        list2csv(filename, json2list(filename))
+        list_of_contacts = json2list(filename)
+        if decode:
+            list_of_contacts = decode_quoted_printable(list_of_contacts)
+        if reducer:
+            list_of_contacts = reduce_phone_attr(list_of_contacts)
+        list2csv(filename, list_of_contacts)
     else:
         print(USAGE)
