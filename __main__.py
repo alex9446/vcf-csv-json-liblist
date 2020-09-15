@@ -1,7 +1,7 @@
 import csv
 import json
-import re
 import quopri
+import re
 from sys import argv
 from typing import Dict, List
 
